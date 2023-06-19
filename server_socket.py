@@ -3,7 +3,7 @@ import socket
 def start_my_server():
     try:
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.bind(('localhost', 10000))
+        server.bind(('127.0.0.1', 10000))
         server.listen(4)
 
         while True:
