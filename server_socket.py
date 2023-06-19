@@ -3,7 +3,7 @@ import socket
 def start_my_server():
     try:
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.bind(('127.0.0.1', 10000))
+        server.bind(('localhost', 10000))
         server.listen(4)
 
         while True:
@@ -18,7 +18,7 @@ def start_my_server():
         print('shutdown')
 
 def parse_get_request(request_data):
-    HDRS = 'HTTP/1.1 200 OK\r\nContent-Type: plain/text; charset=utf-8\r\n\r\n'
+    HDRS = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n'
     lines = request_data.split('\n')
     status_raw, lines = lines[0], lines[1:]
     method, path_raw, _ = status_raw.split(' ')
