@@ -1,3 +1,5 @@
+*.pyc
+
 # Создано https://www.toptal.com/developers/gitignore/api/windows
 # Редактировать на https://www.toptal.com/developers/gitignore?templates=windows
 
