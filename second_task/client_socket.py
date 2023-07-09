@@ -29,7 +29,7 @@ def download_data_currensy():
     try:
         sock.connect((hostname, port))
     except TimeoutError:
-        print("Соединение не установлено,")
+        print("Соединение не установлено!")
     context = ssl.create_default_context()
     ssock = context.wrap_socket(sock, server_hostname=hostname)      
     ssock.send(package.encode('utf-8'))
