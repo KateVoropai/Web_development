@@ -4,107 +4,118 @@ import requests
 import datetime
 
 
-def data_processing(json_response):
-    data_list = []
-    for row in json_response:
+def data_processing(data_response):
+    for row in data_response:
+        row.pop('Cur_ID') 
+        row.pop('Cur_Abbreviation') 
+        row.pop('Cur_Scale') 
         for key, value in row.items():
-            if key == "Cur_Name":
-                cur_name = value
             if key == "Date":
-                date = datetime.date.fromisoformat(value[:10])
-            if key == "Cur_OfficialRate":
-                rate = value
-        data = cur_name, date, rate
-        data_list.append(data)
-    return data_list
+                row["Date"] = datetime.date.fromisoformat(value[:10])
+    return data_response
 
 def download_data_currensy():
     response = requests.get('https://api.nbrb.by/exrates/rates?periodicity=0')
-    json_response = response.json()
-    return data_processing(json_response)
+    data_response = response.json()
+    return data_processing(data_response)
 
 def create_connection(database):
     connection = None
     try:
         connection = sqlite3.connect(database, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
         connection.row_factory = sqlite3.Row
-    except Error:
-        print("Соединение с БД не установлено!")
-    return connection
-
+        cursor = connection.cursor()
+    except Error as e:
+        print("Соединение с базой данных не установлено, {e}")
+    return connection, cursor
+    
 def create_table(connection):
-    cur = connection.cursor()
-    cur.execute(""" CREATE TABLE IF NOT EXISTS currency_rate (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            currency TEXT NOT NULL,
-            date DATE,
-            rate REAL
-            )""")
-    connection.commit()
+    try:
+        connection.execute(""" CREATE TABLE IF NOT EXISTS currency_rate (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    currency TEXT NOT NULL,
+                    date DATE,
+                    rate REAL
+                    )""")
+    except Error as e:
+        print("Ошибка выполнения запроса, {e}")
 
 def insert_data(connection, data):
-    cur = connection.cursor()
-    cur.executemany("""INSERT INTO currency_rate (currency, date, rate) VALUES (?, ?, ?)""", data)
-    connection.commit()
+    try:
+        with connection:
+            connection.executemany("""INSERT INTO currency_rate (currency, date, rate) VALUES (:Cur_Name, :Date, :Cur_OfficialRate)""", data)
+    except Error as e:
+        print("Ошибка выполнения запроса, {e}")
 
 def update_table(connection, data):
-    cur = connection.cursor()
-    cur.executemany("""UPDATE currency_rate SET (date, rate) = (?, ?) WHERE currency = ?""", data)
-    connection.commit()
+    try:
+        with connection:
+            connection.executemany("""UPDATE currency_rate 
+                                    SET date = :Date, rate = :Cur_OfficialRate
+                                    WHERE currency = :Cur_Name""", data)
+    except Error as e:
+        print("Ошибка выполнения запроса, {e}")
 
-def checking_table(connection):
-    cur = connection.cursor()
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='currency_rate'")
-    result = cur.fetchone()
-    if result == None:
+def checking_table(cursor):
+    try:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='currency_rate'")
+        result = cursor.fetchone()
+        if result:
+            return True
         return False
-    else:
-        return True
-    
-def checking_date(connection):
-    cur = connection.cursor()
-    cur.execute("SELECT date FROM currency_rate")
-    res = cur.fetchone()
-    if res['date'] != datetime.date.today():
-        return False
-    else:
-        return True
-    
-def fetch_table(connection):
-    cur = connection.cursor()
-    cur.execute("SELECT currency, date, rate FROM currency_rate")
-    currencies = cur.fetchall()
-    return currencies
+    except Error as e:
+        print("Ошибка выполнения запроса, {e}")
+
+def checking_date(cursor):
+    try:
+        cursor.execute("SELECT date FROM currency_rate")
+        result = cursor.fetchone()
+        if result is None:
+            return False
+        if result['date'] == datetime.date.today():
+            return False
+        if result['date'] != datetime.date.today():
+            return True
+    except Error as e:
+        print("Ошибка выполнения запроса, {e}")
+
+def fetch_table(cursor):
+    try:
+        cursor.execute("SELECT * FROM currency_rate")
+        currencies = cursor.fetchall()
+        return currencies
+    except Error as e:
+        print("Ошибка выполнения запроса, {e}")
 
 def print_currency(currencies):
     for result in currencies:
         print(f"Курс {result['currency']} на дату {result['date']} составляет {result['rate']} BYN")
 
+def checking_answer():
+    while True:
+        answer = input("Создать таблицу? (Y/N): ").lower()
+        if answer == 'y':
+            return True
+        if answer == 'n':
+            return False
+        else:
+            print("Некорректный ввод! Введите (Y/N)")
+
 def main():
     database = 'data_currency.db'
     data = download_data_currensy()
-    connection = create_connection(database)
+    connection, cursor = create_connection(database)
 
-    if checking_table(connection):
-        if checking_date(connection) == False:
-            print(f"Курс валют нe актуальный!")
-            lst_ans = ['y', 'n']
-            while True:    
-                answer = input("Обновить курс валют на текущую дату? (Y/N): ").lower()
-                if answer in lst_ans:
-                    if answer == 'y':
-                        update_table(connection, data)
-                        break
-                    else:
-                        break
-                else:
-                    print("Некорректный ввод! Введите (Y/N)")
+    if checking_table(cursor):
+        if checking_date(cursor):
+            update_table(connection, data)
     else:
         create_table(connection)
         insert_data(connection, data)
     
-    currencies = fetch_table(connection)
-    print_currency(currencies)
+    if checking_answer():
+        currencies = fetch_table(cursor)
+        print_currency(currencies)
     
     connection.close()
 
