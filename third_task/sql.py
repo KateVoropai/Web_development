@@ -5,19 +5,6 @@ import datetime
 from contextlib import contextmanager
 
 
-def data_processing(data_response):
-    for row in data_response:
-        del row['Cur_ID'] 
-        del row['Cur_Abbreviation']
-        del row['Cur_Scale']
-        row["Date"] = datetime.date.fromisoformat(row.get("Date")[:10])
-    return data_response
-
-def download_data_currensy():
-    response = requests.get('https://api.nbrb.by/exrates/rates?periodicity=0')
-    data_response = response.json()
-    return data_processing(data_response)
-
 def create_connection(database):
     connection = None
     try:
@@ -27,62 +14,78 @@ def create_connection(database):
     except Error as e:
         print(f"Соединение с базой данных не установлено, {e}")
     return connection, cursor
-    
-def create_table(cursor):
+
+connection, cursor = create_connection('data_currency.db')
+
+def download_data_currensy():
+    response = requests.get('https://api.nbrb.by/exrates/rates?periodicity=0')
+    data_response = response.json()
+    for row in data_response:
+        del row['Cur_ID'] 
+        del row['Cur_Abbreviation']
+        del row['Cur_Scale']
+        row["Date"] = datetime.date.fromisoformat(row.get("Date")[:10])
+    return data_response
+
+@contextmanager
+def context_manager():
     try:
-        cursor.execute(""" CREATE TABLE IF NOT EXISTS currency_rate (
+        yield cursor
+    except Error as e:
+        connection.rollback()
+        print(f"Ошибка выполнения запроса, {e}")
+    else:
+        connection.commit()
+
+def create_table():
+    with context_manager() as cur:
+        cur.execute(""" CREATE TABLE IF NOT EXISTS currency_rate (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     currency TEXT NOT NULL,
                     date DATE,
                     rate REAL
                     )""")
-    except Error as e:
-        print(f"Ошибка выполнения запроса, {e}")
     return None
 
-@contextmanager
-def context_manager(connection, cursor):
-    try:
-        yield cursor
-        connection.commit()
-    except Error as e:
-        connection.rollback()
-        print(f"Ошибка выполнения запроса, {e}")
+def insert_table(data):
+    insert_data = """INSERT INTO currency_rate (currency, date, rate) VALUES (:Cur_Name, :Date, :Cur_OfficialRate)"""
+    with context_manager() as cur:
+        cur.executemany(insert_data, data)
+    return None
 
-def checking_table(cursor):
-    try:
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='currency_rate'")
-    except Error as e:
-        print(f"Ошибка выполнения запроса, {e}")
-        return False    
+def update_table(data):
+    update_table = """UPDATE currency_rate 
+                    SET date = :Date, rate = :Cur_OfficialRate
+                    WHERE currency = :Cur_Name"""
+    with context_manager() as cur:
+        cur.executemany(update_table, data)
+    return None
+
+def checking_table():
+    with context_manager() as cur:
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='currency_rate'")   
     result = cursor.fetchone()
     if result:
-        return checking_date(cursor)
+        return checking_date()
     return False
 
-def checking_date(cursor):
-    try:
-        cursor.execute("SELECT date FROM currency_rate")
-    except Error as e:
-        print(f"Ошибка выполнения запроса, {e}")
-        return False    
+def checking_date():
+    with context_manager() as cur:
+        cursor.execute("SELECT date FROM currency_rate")    
     result = cursor.fetchone()
     if result is None:
         return False
     if result['date'] == datetime.date.today():
-        return False
-    if result['date'] != datetime.date.today():
         return True
+    return False
     
 
-def fetch_table(cursor):
-    try:
-        cursor.execute("SELECT * FROM currency_rate")
+def fetch_table():
+    with context_manager() as cur:
+        cur.execute("SELECT * FROM currency_rate")
         currencies = cursor.fetchall()
         return currencies
-    except Error as e:
-        print(f"Ошибка выполнения запроса, {e}")
-        return None
+    
 
 def print_currency(currencies):
     for result in currencies:
@@ -99,34 +102,24 @@ def checking_answer():
         else:
             print("Некорректный ввод! Введите (Y/N)")
 
-def changes_in_table(connection, cursor, data):
-    insert_data = """INSERT INTO currency_rate (currency, date, rate) VALUES (:Cur_Name, :Date, :Cur_OfficialRate)"""
-    update_table = """UPDATE currency_rate 
-                                SET date = :Date, rate = :Cur_OfficialRate
-                                WHERE currency = :Cur_Name"""
-    
-    if checking_table(cursor):
-        with context_manager(connection, cursor) as cur:
-            cur.executemany(update_table, data)
-        return None
-    
-    create_table(cursor)
-    with context_manager(connection, cursor) as cur:
-        cur.executemany(insert_data, data)
+def processing_in_data_base(data):
+    if checking_answer():
+        create_table()
+        insert_table(data)
+    else:
+        if checking_table() is False: 
+            update_table(data)
     return None
 
+
 def main():
-    database = 'data_currency.db'
     data = download_data_currensy()
-    connection, cursor = create_connection(database)
     
-    changes_in_table(connection, cursor, data)
-    
-    if checking_answer():
-        currencies = fetch_table(cursor)
-        print_currency(currencies)
-    
-    connection.close()
+    processing_in_data_base(data)
+    currencies = fetch_table()
+    print_currency(currencies)
 
 if __name__ == '__main__':
+    
     main()
+    connection.close()
