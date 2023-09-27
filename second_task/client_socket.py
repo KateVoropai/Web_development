@@ -4,58 +4,45 @@ import json
 import os.path
 
 
-def addrress():
-    package = 'GET http://api.nbrb.by/exrates/currencies HTTP/1.1\r\nHost: api.nbrb.by\r\n\r\n'
-    hostname = 'api.nbrb.by'
-    port = 443
-    return package, hostname, port
+def data_processing(response):
+    response = response.split('\r\n')
+    response = json.loads(response[8])
 
-def data_processing(data):
-    data = data.split('\r\n')
-    data = json.loads(data[7])
     data_dict = {}
-    for text in data:
-        for key, value in text.items():
-            if key == "Cur_Name":
-                dict1 = {key:value}
-            if key == "Cur_Code":
-                dict2 = {key:value}
+    for text in response:
+        dict1 = {"Cur_Name":text["Cur_Name"]}
+        dict2 = {"Cur_Code":text["Cur_Code"]}
         data_dict[text.get("Cur_ID")] = {**dict1, **dict2}
     return data_dict
 
 def download_data_currensy():
-    package, hostname, port = addrress()
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.connect((hostname, port))
-    except TimeoutError:
-        print("Соединение не установлено!")
+    package = 'GET https://www.nbrb.by/api/exrates/currencies HTTP/1.1\r\nHost: www.nbrb.by\r\n\r\n'
+
+    hostname = 'www.nbrb.by'
+    port = 443
+
     context = ssl.create_default_context()
-    ssock = context.wrap_socket(sock, server_hostname=hostname)      
-    ssock.send(package.encode('utf-8'))
-    data = ''
-    print("working...")
-    while True:
-        chunk = ssock.recv(4096).decode('utf-8', 'ignore')
-        if chunk:
-            data += chunk
-        else:
-            ssock.close()
-            break
-    return data_processing(data)
+
+    with socket.create_connection((hostname, port)) as sock:
+        with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+            ssock.send(package.encode())
+            response = b''
+            while True:
+                data = ssock.recv(4096)
+                response += data
+                if ( len(data) < 1 ) :
+                    break
+    response = response.decode('utf-8', 'ignore')
+    return data_processing(response)
 
 def checking_file(path):
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as file:
-            file_content = file.read()
-            file_content = json.loads(file_content)
-    else:
+    if not os.path.exists(path):
         data_dict = download_data_currensy()
-        with open(path, 'w+', encoding="utf-8") as file:
-            file.write(json.dumps(data_dict, ensure_ascii=False))
-            file.seek(0)
-            file_content = file.read()
-            file_content = json.loads(file_content)
+        with open(path, 'w') as file:
+            json.dump(data_dict, file, indent=3)
+
+    with open(path, 'r') as file:
+        file_content = json.load(file)
     return file_content
 
 def print_data_currency(content):
@@ -63,9 +50,7 @@ def print_data_currency(content):
         print(f'ID {key} - Currency {value["Cur_Name"]}')  
     return
 
-def main():
-    file_content = checking_file('data_currency.json')
-    print_data_currency(file_content)
+def checking_answer(file_content):
     while True:
         id_cur = input("Введите id валюты, которой хотите узнать код: ")
         if  not file_content.get(id_cur):
@@ -83,6 +68,12 @@ def main():
                     return None
             else:
                 print("Некорректный ввод! Введите (Y/N)")
+
+def main():
+    file_content = checking_file('data_currency.json')
+    print_data_currency(file_content)
+
+    checking_answer(file_content)
 
 if __name__ == '__main__':
     main()
