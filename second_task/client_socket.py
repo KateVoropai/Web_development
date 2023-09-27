@@ -68,7 +68,7 @@ def main():
     print_data_currency(file_content)
     while True:
         id_cur = input("Введите id валюты, которой хотите узнать код: ")
-        if file_content.get(id_cur) == None:
+        if  not file_content.get(id_cur):
             print("id под таким номером нет в списке валют!")
         else:
             print(f"Код валюты {file_content[id_cur]['Cur_Name']} {file_content[id_cur]['Cur_Code']}")
